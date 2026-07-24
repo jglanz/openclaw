@@ -1944,6 +1944,7 @@ export function createFollowupRunner(params: {
       if (autoCompactionCount > 0) {
         const previousSessionId = run.sessionId;
         const count = await incrementRunCompactionCount({
+          agentId: run.agentId,
           cfg: runtimeConfig,
           sessionEntry: activeSessionEntry,
           sessionStore,
