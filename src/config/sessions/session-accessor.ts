@@ -209,6 +209,7 @@ export {
 export { persistSessionTranscriptTurn } from "./session-accessor.transcript-turn.js";
 export {
   isSessionTranscriptProjectionUnavailableError,
+  readRecentSessionTranscriptActiveEvents,
   readRecentSessionTranscriptMessageEvents,
   readSessionTranscriptActiveLeafEvents,
   readSessionTranscriptMessageAnchorPage,
