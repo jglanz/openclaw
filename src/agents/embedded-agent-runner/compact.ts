@@ -1559,8 +1559,8 @@ async function compactEmbeddedAgentSessionDirectOnce(
               },
             },
           );
-          let effectiveFirstKeptEntryId = result.firstKeptEntryId;
-          let postCompactionLeafId =
+          const effectiveFirstKeptEntryId = result.firstKeptEntryId;
+          const postCompactionLeafId =
             typeof sessionManager.getLeafId === "function"
               ? (sessionManager.getLeafId() ?? undefined)
               : undefined;
