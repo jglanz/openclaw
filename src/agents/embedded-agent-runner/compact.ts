@@ -1583,7 +1583,6 @@ async function compactEmbeddedAgentSessionDirectOnce(
             sessionId: activeSessionId,
             agentId: sessionAgentId,
             sessionFile: activeSessionFile,
-            sessionTarget: params.sessionTarget,
           });
           checkpointSnapshotRetained = await persistCompactionCheckpoint({
             config: params.config,
@@ -1596,6 +1595,7 @@ async function compactEmbeddedAgentSessionDirectOnce(
             tokensBefore: observedTokenCount ?? result.tokensBefore,
             tokensAfter,
             sessionFile: activeSessionFile,
+            sessionTarget: params.sessionTarget,
             leafId: activePostLeafId,
             createdAt: compactStartedAt,
           });
