@@ -3298,6 +3298,45 @@ describe("createFollowupRunner progress forwarding", () => {
     );
   });
 
+  it("forwards channel-forced queued tool progress with verbose mode off", async () => {
+    const onToolStart = vi.fn(async () => {});
+    runEmbeddedAgentMock.mockImplementationOnce(
+      async (args: {
+        onAgentEvent?: (evt: { stream: string; data: Record<string, unknown> }) => Promise<void>;
+        shouldEmitToolResult?: () => boolean;
+      }) => {
+        expect(args.shouldEmitToolResult?.()).toBe(true);
+        await args.onAgentEvent?.({
+          stream: "tool",
+          data: {
+            itemId: "tool:forced-progress",
+            toolCallId: "forced-progress",
+            phase: "start",
+            name: "exec",
+          },
+        });
+        return { payloads: [], meta: { agentMeta: {} } };
+      },
+    );
+    const runner = createFollowupRunner({
+      opts: { forceToolResultProgress: true, onToolStart },
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      defaultModel: "claude",
+    });
+
+    await runner(createQueuedRun({ run: { verboseLevel: "off" } }));
+
+    expect(onToolStart).toHaveBeenCalledWith({
+      itemId: "tool:forced-progress",
+      toolCallId: "forced-progress",
+      name: "exec",
+      phase: "start",
+      args: undefined,
+      detailMode: undefined,
+    });
+  });
+
   it("keeps queued room-event verbose tool summaries suppressed", async () => {
     const queued = createQueuedRun({
       currentInboundEventKind: "room_event",

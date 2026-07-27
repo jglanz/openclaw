@@ -621,7 +621,7 @@ export function createFollowupRunner(params: {
       };
       const shouldSuppressDefaultToolProgressMessages = () => !shouldEmitVerboseProgress();
       const shouldEmitToolResultProgress = () =>
-        shouldEmitVerboseProgress() && !shouldSuppressDefaultToolProgressMessages();
+        opts?.forceToolResultProgress === true || !shouldSuppressDefaultToolProgressMessages();
       const shouldEmitToolOutputProgress = () =>
         resolveCurrentVerboseLevel() === "full" && !shouldSuppressDefaultToolProgressMessages();
       const isRoomEventFollowup = () => queued.currentInboundEventKind === "room_event";
