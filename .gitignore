@@ -156,6 +156,8 @@ package-lock.json
 !.claude/settings.json
 !.claude/skills
 .agent/
+.omc/
+.remember/
 skills-lock.json
 
 # Local iOS signing overrides

@@ -32,6 +32,45 @@ class VoiceWakeManagerTest {
   }
 
   @Test
+  fun continuousNonMatchingSegmentDoesNotRestartRecognizer() =
+    runTest {
+      val recognizer = FakeVoiceWakeRecognizer()
+      val commands = mutableListOf<VoiceWakeMatch>()
+      val manager =
+        manager(recognizer = recognizer) { match ->
+          commands += match
+          true
+        }
+
+      manager.setForeground(true)
+      manager.setEnabled(true)
+      recognizer.emit(VoiceWakeRecognitionEvent.Ready)
+
+      assertTrue(manager.isListening.value)
+      assertEquals(1, recognizer.startCount)
+
+      // Continuous non-matching segment should keep listening without restarting
+      recognizer.emit(VoiceWakeRecognitionEvent.Transcript("just some background speech", isFinal = true, endsSession = false))
+      runCurrent()
+
+      assertTrue(manager.isListening.value)
+      assertEquals("Listening", manager.statusText.value)
+      assertEquals(0, recognizer.stopCount)
+      assertEquals(1, recognizer.startCount)
+
+      // Matching segment triggers command
+      recognizer.emit(VoiceWakeRecognitionEvent.Transcript("openclaw show status", isFinal = true, endsSession = false))
+      runCurrent()
+
+      assertEquals(listOf(VoiceWakeMatch("openclaw", "show status")), commands)
+      assertEquals("show status", manager.lastTriggeredCommand.value)
+      assertEquals(1, recognizer.stopCount)
+
+      advanceUntilIdle()
+      assertEquals(2, recognizer.startCount)
+    }
+
+  @Test
   fun enabledForegroundRecognizerDispatchesCommandAndRestarts() =
     runTest {
       val recognizer = FakeVoiceWakeRecognizer()
