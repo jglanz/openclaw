@@ -66,6 +66,16 @@ Both broadcast to every WebSocket client with read scope (macOS app, WebChat, an
 - **iOS**: calls `voicewake.set`/`voicewake.get` and listens for `voicewake.changed` to keep local wake-word detection responsive.
 - **Android**: calls `voicewake.set`/`voicewake.get`, listens for `voicewake.changed`, and advertises `voiceWake` while enabled. Recognition stays on-device and foreground-only; it pauses while Talk, manual dictation, voice-note capture, or message speech owns audio.
 
+## Android Talk session commands
+
+When Android Voice Wake is enabled, say a configured wake word followed by an exact session command, for example, **“Jarvis start talk session”**. The wake word must be in the Gateway's current trigger list; `Jarvis` is an example, not a built-in default. Optional `talk` or `voice` and `the` or `my` are accepted before `session`.
+
+- `start` / `begin` starts Talk; `stop` / `end` stops it.
+- `pause` suspends Talk capture while leaving Voice Wake available; `resume` / `continue` restarts it.
+- `mute` and `unmute` control Talk speaker playback.
+
+These exact phrases are handled locally and are not sent as chat prompts. Voice Wake must stay enabled to resume a paused session; additional words make a phrase an ordinary Talk transcript instead of a session command.
+
 ## Related
 
 - [Talk mode](/nodes/talk)

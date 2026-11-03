@@ -13,6 +13,11 @@ OpenClaw Android is the officially released Google Play app. It connects to an O
 - Choose a theme family, color mode, accent, and app language in **Settings → Appearance**. Theme and accent edits sync with a connected writable profile. Read-only or unknown-profile edits, including new edits after restarting offline, stay on the device; choose them again after connecting to sync. Already profile-bound edits wait for that profile to reconnect, without discarding or replacing newer device-local choices.
 - Choose **Text size** in **Settings → Appearance**: 90%, 100% (default), 110%, 125%, or 140%. This device-local choice survives restarting the app and does not sync to your profile. It combines with Android system font scaling, including nonlinear scaling, without changing spacing or typefaces.
 - Configure foreground on-device Voice Wake and Gateway-synced wake words in **Settings → Voice**.
+- Android Talk waits twice as long before sending a transcript by default and
+  adjusts its silence window to recent voice activity. With Voice Wake enabled,
+  say a configured wake word followed by `start`, `stop`, `pause`, `resume`,
+  `mute`, or `unmute` `talk session` to control Talk without sending that phrase
+  as a chat prompt.
 - Talk setup and startup failures stay visible in a dismissible Chat dialog. If the message reports a missing provider or invalid credentials, configure the Talk provider on the Gateway before trying again.
 - Use **Settings → OpenClaw** for guided Gateway setup and repair. New replies stay visible at the end of the conversation; scrolling back preserves your reading position until you return or tap **Jump to latest**.
 - Setup offers optional notifications, microphone, camera, and location access; other permissions are under **Additional features**. **Request all** asks for the available runtime permissions without enabling the camera or location features; Android handles consent through its system prompts. Notification access stays separate under **Special access**. Continue without granting access, or enable phone capabilities individually or later in Settings. Blocked individual setup requests offer Android Settings. Biometric locking, Gateway/chat notifications, and authenticated background presence are supported.

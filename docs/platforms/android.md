@@ -583,6 +583,12 @@ Camera commands (foreground only; permission-gated): `camera.snap` (jpg), `camer
   Voice Wake. Android advertises `voiceWake` only when enabled, on-device
   recognition and microphone permission are available, and wake words are
   synchronized with the current Gateway.
+- Native Talk waits 1,400 ms by default after speech, extending the deadline
+  from recent on-device voice activity by up to one additional timeout window.
+  `talk.silenceTimeoutMs` overrides that default. With Voice Wake enabled, say a
+  configured wake word plus `start`, `stop`, `pause`, `resume`, `mute`, or
+  `unmute` `talk session` to control Talk locally; pause leaves Voice Wake
+  available so you can say resume.
 - Additional Android command families (availability depends on device, permissions, and user settings):
   - `device.status`, `device.info`, `device.permissions`, `device.health`
   - `device.apps` only when **Settings → Phone Capabilities → Installed Apps** is enabled; it lists launcher-visible apps by default (pass `includeNonLaunchable` for the full list).

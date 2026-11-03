@@ -4,6 +4,8 @@
 
 Chat has a simpler composer and attachment menu, adjustable text size, and message details. Completed work is easier to scan, with tool errors still visible. Setup and permissions are clearer. Fixes improve Talk startup, camera responsiveness, transcript refresh, and long replies on Wear OS.
 
+Android Talk now waits longer before sending a transcript and adjusts the silence window to recent voice activity. Configured Voice Wake words can start, stop, pause, resume, mute, and unmute Talk sessions locally.
+
 ## 2026.8.2 - 2026-08-31
 
 View your connected machine's desktop from your phone, and follow live subagent progress in chat.

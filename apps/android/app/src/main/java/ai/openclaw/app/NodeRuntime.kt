@@ -109,6 +109,10 @@ import ai.openclaw.app.voice.TalkModeManager
 import ai.openclaw.app.voice.TalkPttOnceStart
 import ai.openclaw.app.voice.TalkPttStopPayload
 import ai.openclaw.app.voice.VoiceConversationRole
+import ai.openclaw.app.voice.VoiceSessionCommand
+import ai.openclaw.app.voice.VoiceSessionCommandParser
+import ai.openclaw.app.voice.VoiceSessionTransition
+import ai.openclaw.app.voice.planVoiceSessionCommand
 import ai.openclaw.app.voice.VoiceWakeManager
 import ai.openclaw.app.voice.VoiceWakeMatch
 import ai.openclaw.app.voice.VoiceWakePreferences
@@ -953,6 +957,7 @@ class NodeRuntime internal constructor(
 
   private val externalAudioCaptureActive = MutableStateFlow(false)
   private val _voiceCaptureMode = MutableStateFlow(VoiceCaptureMode.Off)
+  @Volatile private var voiceSessionPaused = false
   val voiceCaptureMode: StateFlow<VoiceCaptureMode> = _voiceCaptureMode.asStateFlow()
   private val _activeAudioInputDevicePreference = MutableStateFlow<String?>(null)
   val activeAudioInputDevicePreference: StateFlow<String?> = _activeAudioInputDevicePreference.asStateFlow()
@@ -2180,6 +2185,20 @@ class NodeRuntime internal constructor(
 
         fun(isCurrent: () -> Boolean) {
           finishTalkModeAfterRelayClose(ownershipEpoch, isCurrent)
+        }
+      },
+      onVoiceSessionCommand = { transcript ->
+        val command =
+          if (prefs.voiceWakeEnabled.value) {
+            VoiceSessionCommandParser.match(transcript, prefs.voiceWakeWords.value)
+          } else {
+            null
+          }
+        if (command == null) {
+          false
+        } else {
+          handleVoiceSessionCommand(command)
+          true
         }
       },
     )
@@ -3569,7 +3588,34 @@ class NodeRuntime internal constructor(
     setVoiceCaptureMode(
       if (value) VoiceCaptureMode.TalkMode else VoiceCaptureMode.Off,
       disposition = if (value) TalkSessionCloseDisposition.Detach else TalkSessionCloseDisposition.Abort,
-    )
+    ).also { voiceSessionPaused = false }
+
+  private fun handleVoiceSessionCommand(command: VoiceSessionCommand) {
+    scope.launch(Dispatchers.Main) {
+      val transition =
+        planVoiceSessionCommand(
+          command = command,
+          talkActive = _voiceCaptureMode.value == VoiceCaptureMode.TalkMode || talkMode.isEnabled.value,
+          paused = voiceSessionPaused,
+        )
+      when (transition) {
+        VoiceSessionTransition.StartTalk,
+        VoiceSessionTransition.ResumeTalk,
+        -> setTalkModeEnabled(true)
+
+        VoiceSessionTransition.StopTalk -> setTalkModeEnabled(false)
+
+        VoiceSessionTransition.PauseTalk -> {
+          voiceSessionPaused = true
+          setVoiceCaptureMode(VoiceCaptureMode.Off, disposition = TalkSessionCloseDisposition.Detach)
+        }
+
+        VoiceSessionTransition.MuteSpeaker -> setSpeakerEnabled(false)
+        VoiceSessionTransition.UnmuteSpeaker -> setSpeakerEnabled(true)
+        VoiceSessionTransition.None -> Unit
+      }
+    }
+  }
 
   private suspend fun handleTalkPttStart(): GatewaySession.InvokeResult =
     runTalkPttCommand {
@@ -5607,6 +5653,16 @@ class NodeRuntime internal constructor(
     }.getOrNull()
 
   private suspend fun sendVoiceWakeCommand(match: VoiceWakeMatch): Boolean {
+    val sessionCommand =
+      if (prefs.voiceWakeEnabled.value) {
+        VoiceSessionCommandParser.parse(match.command)
+      } else {
+        null
+      }
+    if (sessionCommand != null) {
+      handleVoiceSessionCommand(sessionCommand)
+      return true
+    }
     val gatewayId = connectedEndpoint?.stableId ?: return false
     if (!isVoiceWakeWordsReadyFor(gatewayId)) return false
     if (!_nodeConnected.value) return false

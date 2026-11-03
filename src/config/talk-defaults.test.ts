@@ -10,7 +10,7 @@ import { describeTalkSilenceTimeoutDefaults } from "./talk-defaults.js";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const EXPECTED_TALK_SILENCE_TIMEOUT_MS_BY_PLATFORM = {
   macos: 700,
-  android: 700,
+  android: 1400,
   ios: 900,
 } as const;
 
@@ -34,7 +34,8 @@ describe("talk silence timeout defaults", () => {
   it("keeps help text and docs aligned with the policy", () => {
     const defaultsDescription = describeTalkSilenceTimeoutDefaults();
     const talkDocDefaults =
-      `\`${EXPECTED_TALK_SILENCE_TIMEOUT_MS_BY_PLATFORM.macos}\` ms macOS/Android, ` +
+      `\`${EXPECTED_TALK_SILENCE_TIMEOUT_MS_BY_PLATFORM.macos}\` ms macOS, ` +
+      `\`${EXPECTED_TALK_SILENCE_TIMEOUT_MS_BY_PLATFORM.android}\` ms Android, ` +
       `\`${EXPECTED_TALK_SILENCE_TIMEOUT_MS_BY_PLATFORM.ios}\` ms iOS`;
 
     expect(FIELD_HELP["talk.silenceTimeoutMs"]).toContain(defaultsDescription);

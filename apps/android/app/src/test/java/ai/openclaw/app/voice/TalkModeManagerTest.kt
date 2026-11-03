@@ -653,6 +653,18 @@ class TalkModeManagerTest {
   }
 
   @Test
+  fun realtimeFinalUserTranscriptRunsVoiceSessionCommandHandler() {
+    val commands = mutableListOf<String>()
+    val manager = createRealtimeManager(onVoiceSessionCommand = { command -> commands += command; true })
+
+    manager.transcript("user", "Jarvis start", final = false)
+    assertTrue(commands.isEmpty())
+
+    manager.transcript("user", "Jarvis start talk session", final = true)
+    assertEquals(listOf("Jarvis start talk session"), commands)
+  }
+
+  @Test
   fun responseStartMarksAwaitingAgentUntilStatusMovesOn() {
     val manager = createRealtimeManager()
 
@@ -3784,6 +3796,7 @@ class TalkModeManagerTest {
     onStoppedByRelay: (isCurrent: () -> Boolean) -> Unit = {},
     realtimeCaptureDispatcher: CoroutineDispatcher = Dispatchers.IO,
     realtimePlaybackDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    onVoiceSessionCommand: (String) -> Boolean = { false },
   ): TalkModeManager {
     val app = RuntimeEnvironment.getApplication()
     val session =
@@ -3807,10 +3820,12 @@ class TalkModeManagerTest {
       talkAudioPlayer = talkAudioPlayer ?: TalkAudioPlayer(app),
       realtimeCaptureDispatcher = realtimeCaptureDispatcher,
       realtimePlaybackDispatcher = realtimePlaybackDispatcher,
+      onVoiceSessionCommand = onVoiceSessionCommand,
     ).also { setPrivateField(it, "relayStopNotification", onStoppedByRelay) }
   }
 
-  private fun createRealtimeManager(): TalkModeManager = createManager().also { installRealtimeSession(it, "relay-1") }
+  private fun createRealtimeManager(onVoiceSessionCommand: (String) -> Boolean = { false }): TalkModeManager =
+    createManager(onVoiceSessionCommand = onVoiceSessionCommand).also { installRealtimeSession(it, "relay-1") }
 
   private suspend fun TestScope.withMain(
     dispatcher: CoroutineDispatcher = StandardTestDispatcher(testScheduler),

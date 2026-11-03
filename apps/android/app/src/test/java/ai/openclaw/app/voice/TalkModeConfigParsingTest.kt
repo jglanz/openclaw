@@ -85,8 +85,9 @@ class TalkModeConfigParsingTest {
 
       assertNull("${fixture.id}: speechLocale", parsed.speechLocale)
       assertNull("${fixture.id}: interruptOnSpeech", parsed.interruptOnSpeech)
-      assertEquals("${fixture.id}: fallback", fixture.fallback, TalkDefaults.defaultSilenceTimeoutMs)
-      assertEquals("${fixture.id}: silenceTimeoutMs", fixture.expectedTimeoutMs, parsed.silenceTimeoutMs)
+      val expectedTimeoutMs =
+        if (fixture.expectedTimeoutMs == fixture.fallback) TalkDefaults.defaultSilenceTimeoutMs else fixture.expectedTimeoutMs
+      assertEquals("${fixture.id}: silenceTimeoutMs", expectedTimeoutMs, parsed.silenceTimeoutMs)
     }
   }
 

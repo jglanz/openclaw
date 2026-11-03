@@ -232,6 +232,7 @@ class TalkModeManager internal constructor(
   private val talkAudioPlayer: TalkAudioPlaying = TalkAudioPlayer(context),
   private val realtimeCaptureDispatcher: CoroutineDispatcher = Dispatchers.IO,
   private val realtimePlaybackDispatcher: CoroutineDispatcher = Dispatchers.IO,
+  private val onVoiceSessionCommand: (String) -> Boolean = { false },
 ) {
   companion object {
     private const val tag = "TalkMode"
@@ -336,6 +337,7 @@ class TalkModeManager internal constructor(
   private val silenceWindowMs get() = configCache.get().value.silenceTimeoutMs
   private var lastTranscript: String = ""
   private var lastHeardAtMs: Long? = null
+  @Volatile private var lastVoiceActivityAtMs: Long? = null
   private var lastSpokenText: String? = null
 
   // Interrupt-on-speech is disabled by default: starting a SpeechRecognizer during
@@ -1660,6 +1662,8 @@ class TalkModeManager internal constructor(
           if (isFinal && role == "assistant") {
             // Final text can precede audio; refresh after queued playback without closing the turn.
             afterDispatch = owner?.let { realtimePlayout.refreshState(it, statusOwner) }
+          } else if (isFinal && role == "user" && text != null) {
+            afterDispatch = { onVoiceSessionCommand(text) }
           }
         }
 
@@ -2325,8 +2329,14 @@ class TalkModeManager internal constructor(
       }
       return
     }
-    if (_isSpeaking.value && interruptOnSpeech) {
-      if (shouldInterrupt(trimmed)) {
+    if (_isSpeaking.value) {
+      if (isFinal && onVoiceSessionCommand(trimmed)) {
+        lastTranscript = ""
+        lastHeardAtMs = null
+        lastVoiceActivityAtMs = null
+        return
+      }
+      if (interruptOnSpeech && shouldInterrupt(trimmed)) {
         cancelActivePlayback()
       }
       return
@@ -2368,14 +2378,19 @@ class TalkModeManager internal constructor(
         lastTranscript.trim()
       }
     if (transcript.isEmpty()) return
-    val lastHeard = lastHeardAtMs ?: return
-    val elapsed = SystemClock.elapsedRealtime() - lastHeard
-    if (elapsed < silenceWindowMs) return
+    val now = SystemClock.elapsedRealtime()
+    if (!TalkSilenceWindow.isSilenceElapsed(now, lastHeardAtMs, lastVoiceActivityAtMs, silenceWindowMs)) return
     if (captureId != null) {
       if (pttAutoStopEnabled) {
         if (pttReleaseCompletion != null) return
         endPushToTalk(captureId)
       }
+      return
+    }
+    if (onVoiceSessionCommand(transcript)) {
+      lastTranscript = ""
+      lastHeardAtMs = null
+      lastVoiceActivityAtMs = null
       return
     }
     // The listening job owns the turn, so stop or PTT takeover also cancels pending finalization.
@@ -2388,6 +2403,7 @@ class TalkModeManager internal constructor(
     setStatus(nativeText("Thinking…"), awaitingAgent = true)
     lastTranscript = ""
     lastHeardAtMs = null
+    lastVoiceActivityAtMs = null
     // Do not start synthesis while native recognition is still queued for teardown on Main.
     retireRecognizer()
     audioRetirement.await()
@@ -2529,6 +2545,7 @@ class TalkModeManager internal constructor(
     pttLivePartial = ""
     lastTranscript = ""
     lastHeardAtMs = null
+    lastVoiceActivityAtMs = null
   }
 
   private fun finishPushToTalk(
@@ -3044,7 +3061,22 @@ class TalkModeManager internal constructor(
           }
         }
 
-      override fun onBeginningOfSpeech() {}
+      override fun onBeginningOfSpeech() {
+        withCurrentRecognition(owner, captureId) {
+          if (_isListening.value || activePttCaptureId != null) {
+            lastVoiceActivityAtMs = SystemClock.elapsedRealtime()
+          }
+        }
+      }
+
+      override fun onRmsChanged(rmsdB: Float) {
+        if (!TalkSilenceWindow.isVoiceActivity(rmsdB)) return
+        withCurrentRecognition(owner, captureId) {
+          if (_isListening.value || activePttCaptureId != null) {
+            lastVoiceActivityAtMs = SystemClock.elapsedRealtime()
+          }
+        }
+      }
 
       // onResults/onError always follow end of speech and own the restart. Restarting here
       // cancels the session before its final hypothesis, and the cancel's ERROR_CLIENT clears
