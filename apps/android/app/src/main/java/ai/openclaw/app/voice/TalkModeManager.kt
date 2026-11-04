@@ -232,7 +232,7 @@ class TalkModeManager internal constructor(
   private val talkAudioPlayer: TalkAudioPlaying = TalkAudioPlayer(context),
   private val realtimeCaptureDispatcher: CoroutineDispatcher = Dispatchers.IO,
   private val realtimePlaybackDispatcher: CoroutineDispatcher = Dispatchers.IO,
-  private val onVoiceSessionCommand: (String) -> Boolean = { false },
+  private val onVoiceSessionCommand: (List<String>) -> Boolean = { false },
 ) {
   companion object {
     private const val tag = "TalkMode"
@@ -336,7 +336,9 @@ class TalkModeManager internal constructor(
   private var silenceJob: Job? = null
   private val silenceWindowMs get() = configCache.get().value.silenceTimeoutMs
   private var lastTranscript: String = ""
+  private var lastTranscriptAlternatives: List<String> = emptyList()
   private var lastHeardAtMs: Long? = null
+
   @Volatile private var lastVoiceActivityAtMs: Long? = null
   private var lastSpokenText: String? = null
 
@@ -1663,7 +1665,7 @@ class TalkModeManager internal constructor(
             // Final text can precede audio; refresh after queued playback without closing the turn.
             afterDispatch = owner?.let { realtimePlayout.refreshState(it, statusOwner) }
           } else if (isFinal && role == "user" && text != null) {
-            afterDispatch = { onVoiceSessionCommand(text) }
+            afterDispatch = { onVoiceSessionCommand(listOf(text)) }
           }
         }
 
@@ -2313,10 +2315,18 @@ class TalkModeManager internal constructor(
   }
 
   private fun handleTranscript(
-    text: String,
+    transcripts: List<String>,
     isFinal: Boolean,
   ) {
-    val trimmed = text.trim()
+    val alternatives =
+      transcripts
+        .asSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .distinct()
+        .take(3)
+        .toList()
+    val trimmed = alternatives.firstOrNull().orEmpty()
     if (activePttCaptureId != null) {
       if (trimmed.isNotEmpty()) {
         if (isFinal) {
@@ -2330,8 +2340,9 @@ class TalkModeManager internal constructor(
       return
     }
     if (_isSpeaking.value) {
-      if (isFinal && onVoiceSessionCommand(trimmed)) {
+      if (isFinal && onVoiceSessionCommand(alternatives)) {
         lastTranscript = ""
+        lastTranscriptAlternatives = emptyList()
         lastHeardAtMs = null
         lastVoiceActivityAtMs = null
         return
@@ -2346,11 +2357,13 @@ class TalkModeManager internal constructor(
 
     if (trimmed.isNotEmpty()) {
       lastTranscript = trimmed
+      lastTranscriptAlternatives = alternatives
       lastHeardAtMs = SystemClock.elapsedRealtime()
     }
 
     if (isFinal) {
       lastTranscript = trimmed
+      lastTranscriptAlternatives = alternatives
       // Don't finalize immediately — let the silence monitor trigger after
       // silenceWindowMs. This allows the recognizer to fire onResults and
       // still give the user a natural pause before we send.
@@ -2387,8 +2400,10 @@ class TalkModeManager internal constructor(
       }
       return
     }
-    if (onVoiceSessionCommand(transcript)) {
+    val alternatives = lastTranscriptAlternatives.ifEmpty { listOf(transcript) }
+    if (onVoiceSessionCommand(alternatives)) {
       lastTranscript = ""
+      lastTranscriptAlternatives = emptyList()
       lastHeardAtMs = null
       lastVoiceActivityAtMs = null
       return
@@ -2402,6 +2417,7 @@ class TalkModeManager internal constructor(
     _isListening.value = false
     setStatus(nativeText("Thinking…"), awaitingAgent = true)
     lastTranscript = ""
+    lastTranscriptAlternatives = emptyList()
     lastHeardAtMs = null
     lastVoiceActivityAtMs = null
     // Do not start synthesis while native recognition is still queued for teardown on Main.
@@ -2544,6 +2560,7 @@ class TalkModeManager internal constructor(
     pttFinalSegments.clear()
     pttLivePartial = ""
     lastTranscript = ""
+    lastTranscriptAlternatives = emptyList()
     lastHeardAtMs = null
     lastVoiceActivityAtMs = null
   }
@@ -3133,7 +3150,7 @@ class TalkModeManager internal constructor(
       override fun onResults(results: Bundle?) =
         withCurrentRecognition(owner, captureId) {
           val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-          list.firstOrNull()?.let { handleTranscript(it, isFinal = true) }
+          if (list.isNotEmpty()) handleTranscript(list, isFinal = true)
           if (activePttCaptureId != null) {
             _isListening.value = false
             pttReleaseCompletion?.let {
@@ -3152,14 +3169,14 @@ class TalkModeManager internal constructor(
       override fun onPartialResults(partialResults: Bundle?) =
         withCurrentRecognition(owner, captureId) {
           val list = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-          list.firstOrNull()?.let { handleTranscript(it, isFinal = false) }
+          if (list.isNotEmpty()) handleTranscript(list, isFinal = false)
         }
 
       override fun onSegmentResults(segmentResults: Bundle) =
         withCurrentRecognition(owner, captureId) {
           if (activePttCaptureId == null) return@withCurrentRecognition
           val list = segmentResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-          list.firstOrNull()?.let { handleTranscript(it, isFinal = true) }
+          list.firstOrNull()?.let { handleTranscript(listOf(it), isFinal = true) }
         }
 
       override fun onEndOfSegmentedSession() =

@@ -4,8 +4,8 @@ import ai.openclaw.app.hasPermission
 import ai.openclaw.app.i18n.NativeText
 import ai.openclaw.app.i18n.nativeText
 import ai.openclaw.app.i18n.resolveNativeText
-import android.annotation.SuppressLint
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.media.AudioFormat
@@ -44,6 +44,7 @@ internal sealed interface VoiceWakeRecognitionEvent {
     val text: String,
     val isFinal: Boolean,
     val endsSession: Boolean = true,
+    val alternatives: List<String> = listOf(text),
   ) : VoiceWakeRecognitionEvent
 
   data class Error(
@@ -53,6 +54,8 @@ internal sealed interface VoiceWakeRecognitionEvent {
 
 internal interface VoiceWakeRecognizer {
   val isAvailable: Boolean
+
+  fun updateBiasingPhrases(phrases: List<String>) = Unit
 
   fun start(
     operationId: Long,
@@ -124,11 +127,17 @@ internal class AndroidOnDeviceVoiceWakeRecognizer(
   private val pumpScope = CoroutineScope(Dispatchers.IO + pumpJob)
   override val isAvailable: Boolean =
     runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext) }.getOrDefault(false)
+
+  @Volatile private var biasingPhrases: List<String> = emptyList()
   private val latestOperationId = AtomicLong(0)
   private val platformOwnerOperationId = AtomicLong(0)
   private var recognizer: SpeechRecognizer? = null
   private var recognitionSession: VoiceWakeRecognitionSession? = null
   private var audioSource: VoiceWakeAudioSource? = null
+
+  override fun updateBiasingPhrases(phrases: List<String>) {
+    biasingPhrases = phrases.toList()
+  }
 
   override fun start(
     operationId: Long,
@@ -259,19 +268,23 @@ internal class AndroidOnDeviceVoiceWakeRecognizer(
           }
 
           override fun onResults(results: Bundle?) {
-            bestTranscript(results)?.let { session.emit(VoiceWakeRecognitionEvent.Transcript(it, isFinal = true, endsSession = true)) }
-              ?: session.emit(VoiceWakeRecognitionEvent.Error(SpeechRecognizer.ERROR_NO_MATCH))
+            val alternatives = transcripts(results)
+            alternatives.firstOrNull()?.let {
+              session.emit(VoiceWakeRecognitionEvent.Transcript(it, isFinal = true, endsSession = true, alternatives = alternatives))
+            } ?: session.emit(VoiceWakeRecognitionEvent.Error(SpeechRecognizer.ERROR_NO_MATCH))
           }
 
           override fun onPartialResults(partialResults: Bundle?) {
-            bestTranscript(partialResults)?.let {
-              session.emit(VoiceWakeRecognitionEvent.Transcript(it, isFinal = false, endsSession = false))
+            val alternatives = transcripts(partialResults)
+            alternatives.firstOrNull()?.let {
+              session.emit(VoiceWakeRecognitionEvent.Transcript(it, isFinal = false, endsSession = false, alternatives = alternatives))
             }
           }
 
           override fun onSegmentResults(segmentResults: Bundle) {
-            bestTranscript(segmentResults)?.let {
-              session.emit(VoiceWakeRecognitionEvent.Transcript(it, isFinal = true, endsSession = false))
+            val alternatives = transcripts(segmentResults)
+            alternatives.firstOrNull()?.let {
+              session.emit(VoiceWakeRecognitionEvent.Transcript(it, isFinal = true, endsSession = false, alternatives = alternatives))
             }
           }
 
@@ -338,6 +351,9 @@ internal class AndroidOnDeviceVoiceWakeRecognizer(
       putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
       putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
       putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && biasingPhrases.isNotEmpty()) {
+        putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(biasingPhrases))
+      }
       if (audioSource != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, audioSource.readDescriptor)
         putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
@@ -348,8 +364,8 @@ internal class AndroidOnDeviceVoiceWakeRecognizer(
     }
 
   @Suppress("DEPRECATION")
-  private fun bestTranscript(bundle: Bundle?): String? {
-    if (bundle == null) return null
+  private fun transcripts(bundle: Bundle?): List<String> {
+    if (bundle == null) return emptyList()
     val list: List<String> =
       when (val raw = bundle.get(SpeechRecognizer.RESULTS_RECOGNITION)) {
         is ArrayList<*> -> raw.mapNotNull { it?.toString() }
@@ -358,7 +374,13 @@ internal class AndroidOnDeviceVoiceWakeRecognizer(
         is CharSequence -> listOf(raw.toString())
         else -> bundle.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
       }
-    return list.firstOrNull()?.trim()?.takeIf(String::isNotEmpty)
+    return list
+      .asSequence()
+      .map(String::trim)
+      .filter(String::isNotEmpty)
+      .distinct()
+      .take(3)
+      .toList()
   }
 }
 
@@ -421,6 +443,10 @@ internal class VoiceWakeManager(
   val isAvailable: Boolean
     get() = recognizer.isAvailable
 
+  init {
+    recognizer.updateBiasingPhrases(VoiceSessionCommandParser.biasingPhrases(triggerWords))
+  }
+
   fun setEnabled(value: Boolean) =
     reconcile {
       enabled = value
@@ -447,8 +473,10 @@ internal class VoiceWakeManager(
   }
 
   fun updateTriggerWords(words: List<String>) {
+    val sanitized = VoiceWakePreferences.sanitizeTriggerWords(words)
     synchronized(lock) {
-      triggerWords = VoiceWakePreferences.sanitizeTriggerWords(words)
+      triggerWords = sanitized
+      recognizer.updateBiasingPhrases(VoiceSessionCommandParser.biasingPhrases(sanitized))
     }
   }
 
@@ -524,7 +552,7 @@ internal class VoiceWakeManager(
             // Android partials routinely stop mid-command. Only a final transcript
             // has the recognizer's end-of-utterance boundary and is safe to dispatch.
             if (!event.isFinal) return
-            val transcriptAction = handleTranscriptLocked(event.text)
+            val transcriptAction = handleTranscriptLocked(event.alternatives.ifEmpty { listOf(event.text) })
             if (transcriptAction == null && event.endsSession) {
               sessionActive = false
               _isListening.value = false
@@ -552,9 +580,11 @@ internal class VoiceWakeManager(
     performRecognizerAction(action)
   }
 
-  private fun handleTranscriptLocked(transcript: String): RecognizerAction? {
+  private fun handleTranscriptLocked(transcripts: List<String>): RecognizerAction? {
     if (commandInFlight) return null
-    val match = VoiceWakePhraseMatcher.match(transcript, triggerWords) ?: return null
+    val matches = transcripts.mapNotNull { transcript -> VoiceWakePhraseMatcher.match(transcript, triggerWords) }
+    val triggerMatch = matches.firstOrNull() ?: return null
+    val match = triggerMatch.copy(alternativeCommands = matches.drop(1).map { it.command })
     sessionGeneration += 1
     val commandGeneration = sessionGeneration
     sessionActive = false

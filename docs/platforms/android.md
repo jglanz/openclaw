@@ -585,10 +585,18 @@ Camera commands (foreground only; permission-gated): `camera.snap` (jpg), `camer
   synchronized with the current Gateway.
 - Native Talk waits 1,400 ms by default after speech, extending the deadline
   from recent on-device voice activity by up to one additional timeout window.
-  `talk.silenceTimeoutMs` overrides that default. With Voice Wake enabled, say a
-  configured wake word plus `start`, `stop`, `pause`, `resume`, `mute`, or
-  `unmute` `talk session` to control Talk locally; pause leaves Voice Wake
-  available so you can say resume.
+  `talk.silenceTimeoutMs` overrides that default.
+- With Voice Wake enabled, natural wording for `start`, `stop`, `pause`, `resume`,
+  `mute`, and `unmute` controls Talk. Idle or paused commands need a configured
+  wake word; during active Talk, a bare command needs an action plus a target
+  (for example, “could you end the conversation” or “mute the speaker”). A
+  wake-prefixed “Jarvis stop” ends active Talk. Unknown words and commands whose
+  state transition would do nothing remain ordinary speech. Voice Wake checks
+  up to three recognizer guesses and, on Android 13+, provides best-effort
+  wake-word/command biasing hints. Voice start and resume work only while the
+  app is in the foreground. In realtime Talk, the provider has already heard
+  the audio and may respond before the local action. See
+  [Android Talk session commands](/nodes/voicewake#android-talk-session-commands).
 - Additional Android command families (availability depends on device, permissions, and user settings):
   - `device.status`, `device.info`, `device.permissions`, `device.health`
   - `device.apps` only when **Settings → Phone Capabilities → Installed Apps** is enabled; it lists launcher-visible apps by default (pass `includeNonLaunchable` for the full list).

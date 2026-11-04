@@ -104,6 +104,50 @@ class VoiceWakeManagerTest {
     }
 
   @Test
+  fun laterWakeGuessTriggersAndMatchedAlternativesAreRetained() =
+    runTest {
+      val recognizer = FakeVoiceWakeRecognizer()
+      val commands = mutableListOf<VoiceWakeMatch>()
+      val manager =
+        manager(recognizer = recognizer) { match ->
+          commands += match
+          true
+        }
+
+      manager.setForeground(true)
+      manager.setEnabled(true)
+      recognizer.emit(VoiceWakeRecognitionEvent.Ready)
+      recognizer.emit(
+        VoiceWakeRecognitionEvent.Transcript(
+          text = "ordinary speech",
+          isFinal = true,
+          alternatives = listOf("ordinary speech", "OpenClaw show status", "openclaw show weather"),
+        ),
+      )
+      runCurrent()
+
+      assertEquals(
+        listOf(VoiceWakeMatch("OpenClaw", "show status", alternativeCommands = listOf("show weather"))),
+        commands,
+      )
+      assertEquals("show status", manager.lastTriggeredCommand.value)
+    }
+
+  @Test
+  fun recognizerReceivesBiasingPhrasesOnConstructionAndTriggerUpdate() =
+    runTest {
+      val recognizer = FakeVoiceWakeRecognizer()
+      val manager = manager(recognizer = recognizer)
+
+      assertTrue("openclaw stop voice session" in recognizer.biasingPhrases)
+
+      manager.updateTriggerWords(listOf("jarvis", "computer"))
+
+      assertTrue("jarvis pause voice session" in recognizer.biasingPhrases)
+      assertTrue("computer" in recognizer.biasingPhrases)
+    }
+
+  @Test
   fun suppressionStopsAndResumesRecognizer() =
     runTest {
       val recognizer = FakeVoiceWakeRecognizer()
@@ -284,7 +328,12 @@ class VoiceWakeManagerTest {
     var startCount = 0
     var stopCount = 0
     var stopCallbackCompleted = false
+    var biasingPhrases: List<String> = emptyList()
     private var onEvent: ((VoiceWakeRecognitionEvent) -> Unit)? = null
+
+    override fun updateBiasingPhrases(phrases: List<String>) {
+      biasingPhrases = phrases
+    }
 
     override fun start(
       operationId: Long,

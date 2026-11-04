@@ -112,11 +112,11 @@ import ai.openclaw.app.voice.VoiceConversationRole
 import ai.openclaw.app.voice.VoiceSessionCommand
 import ai.openclaw.app.voice.VoiceSessionCommandParser
 import ai.openclaw.app.voice.VoiceSessionTransition
-import ai.openclaw.app.voice.planVoiceSessionCommand
 import ai.openclaw.app.voice.VoiceWakeManager
 import ai.openclaw.app.voice.VoiceWakeMatch
 import ai.openclaw.app.voice.VoiceWakePreferences
 import ai.openclaw.app.voice.VoiceWakeSuppressionReason
+import ai.openclaw.app.voice.planVoiceSessionCommand
 import ai.openclaw.app.wear.WearProxyBridge
 import ai.openclaw.app.wear.WearProxyController
 import ai.openclaw.app.wear.WearProxyGatewayException
@@ -957,6 +957,7 @@ class NodeRuntime internal constructor(
 
   private val externalAudioCaptureActive = MutableStateFlow(false)
   private val _voiceCaptureMode = MutableStateFlow(VoiceCaptureMode.Off)
+
   @Volatile private var voiceSessionPaused = false
   val voiceCaptureMode: StateFlow<VoiceCaptureMode> = _voiceCaptureMode.asStateFlow()
   private val _activeAudioInputDevicePreference = MutableStateFlow<String?>(null)
@@ -2187,10 +2188,13 @@ class NodeRuntime internal constructor(
           finishTalkModeAfterRelayClose(ownershipEpoch, isCurrent)
         }
       },
-      onVoiceSessionCommand = { transcript ->
+      onVoiceSessionCommand = { transcripts ->
         val command =
           if (prefs.voiceWakeEnabled.value) {
-            VoiceSessionCommandParser.match(transcript, prefs.voiceWakeWords.value)
+            transcripts
+              .asSequence()
+              .mapNotNull { transcript -> VoiceSessionCommandParser.matchInSession(transcript, prefs.voiceWakeWords.value) }
+              .firstOrNull { currentVoiceSessionTransition(it) != VoiceSessionTransition.None }
           } else {
             null
           }
@@ -3592,30 +3596,49 @@ class NodeRuntime internal constructor(
 
   private fun handleVoiceSessionCommand(command: VoiceSessionCommand) {
     scope.launch(Dispatchers.Main) {
-      val transition =
-        planVoiceSessionCommand(
-          command = command,
-          talkActive = _voiceCaptureMode.value == VoiceCaptureMode.TalkMode || talkMode.isEnabled.value,
-          paused = voiceSessionPaused,
-        )
+      val transition = currentVoiceSessionTransition(command)
+      Log.d("OpenClawRuntime", "voice session transition $transition")
       when (transition) {
         VoiceSessionTransition.StartTalk,
         VoiceSessionTransition.ResumeTalk,
-        -> setTalkModeEnabled(true)
+        -> {
+          // Background starts cannot claim the microphone foreground-service type.
+          if (_isForeground.value) {
+            setTalkModeEnabled(true)
+          } else {
+            Log.d("OpenClawRuntime", "voice session $transition ignored while app is in background")
+          }
+        }
 
-        VoiceSessionTransition.StopTalk -> setTalkModeEnabled(false)
+        VoiceSessionTransition.StopTalk -> {
+          setTalkModeEnabled(false)
+        }
 
         VoiceSessionTransition.PauseTalk -> {
           voiceSessionPaused = true
           setVoiceCaptureMode(VoiceCaptureMode.Off, disposition = TalkSessionCloseDisposition.Detach)
         }
 
-        VoiceSessionTransition.MuteSpeaker -> setSpeakerEnabled(false)
-        VoiceSessionTransition.UnmuteSpeaker -> setSpeakerEnabled(true)
-        VoiceSessionTransition.None -> Unit
+        VoiceSessionTransition.MuteSpeaker -> {
+          setSpeakerEnabled(false)
+        }
+
+        VoiceSessionTransition.UnmuteSpeaker -> {
+          setSpeakerEnabled(true)
+        }
+
+        VoiceSessionTransition.None -> {
+        }
       }
     }
   }
+
+  private fun currentVoiceSessionTransition(command: VoiceSessionCommand): VoiceSessionTransition =
+    planVoiceSessionCommand(
+      command = command,
+      talkActive = _voiceCaptureMode.value == VoiceCaptureMode.TalkMode || talkMode.isEnabled.value,
+      paused = voiceSessionPaused,
+    )
 
   private suspend fun handleTalkPttStart(): GatewaySession.InvokeResult =
     runTalkPttCommand {
@@ -5655,11 +5678,20 @@ class NodeRuntime internal constructor(
   private suspend fun sendVoiceWakeCommand(match: VoiceWakeMatch): Boolean {
     val sessionCommand =
       if (prefs.voiceWakeEnabled.value) {
-        VoiceSessionCommandParser.parse(match.command)
+        (listOf(match.command) + match.alternativeCommands)
+          .asSequence()
+          .mapNotNull { command ->
+            VoiceSessionCommandParser.parse(
+              command,
+              wakeWordUsed = true,
+              ignoredWords = prefs.voiceWakeWords.value,
+            )
+          }.firstOrNull { currentVoiceSessionTransition(it) != VoiceSessionTransition.None }
       } else {
         null
       }
     if (sessionCommand != null) {
+      Log.d("OpenClawRuntime", "voice session command $sessionCommand handled locally")
       handleVoiceSessionCommand(sessionCommand)
       return true
     }

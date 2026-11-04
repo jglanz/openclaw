@@ -15,9 +15,16 @@ OpenClaw Android is the officially released Google Play app. It connects to an O
 - Configure foreground on-device Voice Wake and Gateway-synced wake words in **Settings → Voice**.
 - Android Talk waits twice as long before sending a transcript by default and
   adjusts its silence window to recent voice activity. With Voice Wake enabled,
-  say a configured wake word followed by `start`, `stop`, `pause`, `resume`,
-  `mute`, or `unmute` `talk session` to control Talk without sending that phrase
-  as a chat prompt.
+  natural wording for `start`, `stop`, `pause`, `resume`, `mute`, and `unmute`
+  controls Talk. Idle or paused commands need a configured wake word; during
+  active Talk, a bare command needs an action and a target, such as “end the
+  conversation” or “mute the speaker”. A wake-prefixed “Jarvis stop” ends active
+  Talk. Unknown words and commands whose state transition would do nothing
+  remain ordinary speech. Voice Wake checks up to three guesses and, on Android
+  13+, sends best-effort wake-word and command biasing hints. Voice start and
+  resume work only in the foreground. Actionable matches do not create a
+  separate chat message; no-op matches follow their normal speech path. In
+  realtime Talk the provider may respond to the audio before the local action.
 - Talk setup and startup failures stay visible in a dismissible Chat dialog. If the message reports a missing provider or invalid credentials, configure the Talk provider on the Gateway before trying again.
 - Use **Settings → OpenClaw** for guided Gateway setup and repair. New replies stay visible at the end of the conversation; scrolling back preserves your reading position until you return or tap **Jump to latest**.
 - Setup offers optional notifications, microphone, camera, and location access; other permissions are under **Additional features**. **Request all** asks for the available runtime permissions without enabling the camera or location features; Android handles consent through its system prompts. Notification access stays separate under **Special access**. Continue without granting access, or enable phone capabilities individually or later in Settings. Blocked individual setup requests offer Android Settings. Biometric locking, Gateway/chat notifications, and authenticated background presence are supported.

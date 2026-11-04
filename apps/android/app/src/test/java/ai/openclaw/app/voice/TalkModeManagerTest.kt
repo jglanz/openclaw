@@ -654,15 +654,44 @@ class TalkModeManagerTest {
 
   @Test
   fun realtimeFinalUserTranscriptRunsVoiceSessionCommandHandler() {
-    val commands = mutableListOf<String>()
-    val manager = createRealtimeManager(onVoiceSessionCommand = { command -> commands += command; true })
+    val commands = mutableListOf<List<String>>()
+    val manager =
+      createRealtimeManager(onVoiceSessionCommand = { guesses ->
+        commands += guesses
+        true
+      })
 
     manager.transcript("user", "Jarvis start", final = false)
     assertTrue(commands.isEmpty())
 
     manager.transcript("user", "Jarvis start talk session", final = true)
-    assertEquals(listOf("Jarvis start talk session"), commands)
+    assertEquals(listOf(listOf("Jarvis start talk session")), commands)
   }
+
+  @Test
+  fun nativeTalkPassesAllFinalGuessesAndUsesTopGuessWhenHookDeclines() =
+    runBlocking {
+      val guesses = mutableListOf<List<String>>()
+      withNativeTalk(
+        onVoiceSessionCommand = { alternatives ->
+          guesses += alternatives
+          false
+        },
+      ) { proof, sends ->
+        currentRecognizer().triggerOnResults(recognitionResults("primary guess", "alternative guess"))
+        advanceTalkSilence(proof)
+        awaitTalkWork(proof) { sends.isNotEmpty() }
+
+        assertEquals(listOf(listOf("primary guess", "alternative guess")), guesses)
+        assertEquals(
+          "primary guess",
+          sends
+            .single()
+            .getValue("message")
+            .jsonPrimitive.content,
+        )
+      }
+    }
 
   @Test
   fun responseStartMarksAwaitingAgentUntilStatusMovesOn() {
@@ -1384,6 +1413,7 @@ class TalkModeManagerTest {
   private suspend fun withNativeTalk(
     history: () -> String = { """{"messages":[{"role":"assistant","content":[{"type":"text","text":"Synthetic native reply"}]}]}""" },
     interceptRequest: (JsonObject, WebSocket) -> Boolean = { _, _ -> false },
+    onVoiceSessionCommand: (List<String>) -> Boolean = { false },
     block: suspend (RealtimePlaybackProof, ConcurrentLinkedQueue<JsonObject>) -> Unit,
   ) {
     installSpeechRecognitionService()
@@ -1391,6 +1421,7 @@ class TalkModeManagerTest {
     val relayCreates = ConcurrentLinkedQueue<JsonObject>()
     withStartedTalk(
       interceptRequest = interceptRequest,
+      onVoiceSessionCommand = onVoiceSessionCommand,
       responseForRequest = { request, _ ->
         when (request.getValue("method").jsonPrimitive.content) {
           "talk.config" -> {
@@ -1431,7 +1462,7 @@ class TalkModeManagerTest {
     return shadowOf(checkNotNull(ShadowSpeechRecognizer.getLatestSpeechRecognizer()))
   }
 
-  private fun recognitionResults(text: String) = Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf(text)) }
+  private fun recognitionResults(vararg texts: String) = Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf(*texts)) }
 
   private fun advanceTalkSilence(proof: RealtimePlaybackProof) {
     repeat(12) {
@@ -3052,6 +3083,7 @@ class TalkModeManagerTest {
     captureRelayStopNotification: () -> ((() -> Boolean) -> Unit) = { {} },
     responseForRequest: (JsonObject, WebSocket) -> String? = { _, _ -> null },
     interceptRequest: (JsonObject, WebSocket) -> Boolean = { _, _ -> false },
+    onVoiceSessionCommand: (List<String>) -> Boolean = { false },
     block: suspend (RealtimePlaybackProof) -> Unit,
   ) {
     val app = RuntimeEnvironment.getApplication()
@@ -3097,6 +3129,7 @@ class TalkModeManagerTest {
         realtimeCaptureDispatcher = captureDispatcher,
         realtimePlaybackDispatcher = StandardTestDispatcher(scheduler),
         captureRelayStopNotification = captureRelayStopNotification,
+        onVoiceSessionCommand = onVoiceSessionCommand,
       )
     val writes = mutableListOf<Triple<AudioTrack, ByteArray, AudioFormat>>()
     val listener = ShadowAudioTrack.OnAudioDataWrittenListener { track, bytes, format -> writes += Triple(track, bytes, format) }
@@ -3796,7 +3829,7 @@ class TalkModeManagerTest {
     onStoppedByRelay: (isCurrent: () -> Boolean) -> Unit = {},
     realtimeCaptureDispatcher: CoroutineDispatcher = Dispatchers.IO,
     realtimePlaybackDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    onVoiceSessionCommand: (String) -> Boolean = { false },
+    onVoiceSessionCommand: (List<String>) -> Boolean = { false },
   ): TalkModeManager {
     val app = RuntimeEnvironment.getApplication()
     val session =
@@ -3824,8 +3857,7 @@ class TalkModeManagerTest {
     ).also { setPrivateField(it, "relayStopNotification", onStoppedByRelay) }
   }
 
-  private fun createRealtimeManager(onVoiceSessionCommand: (String) -> Boolean = { false }): TalkModeManager =
-    createManager(onVoiceSessionCommand = onVoiceSessionCommand).also { installRealtimeSession(it, "relay-1") }
+  private fun createRealtimeManager(onVoiceSessionCommand: (List<String>) -> Boolean = { false }): TalkModeManager = createManager(onVoiceSessionCommand = onVoiceSessionCommand).also { installRealtimeSession(it, "relay-1") }
 
   private suspend fun TestScope.withMain(
     dispatcher: CoroutineDispatcher = StandardTestDispatcher(testScheduler),

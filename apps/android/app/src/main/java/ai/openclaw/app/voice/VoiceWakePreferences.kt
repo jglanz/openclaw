@@ -23,6 +23,7 @@ internal object VoiceWakePreferences {
 internal data class VoiceWakeMatch(
   val trigger: String,
   val command: String,
+  val alternativeCommands: List<String> = emptyList(),
 )
 
 internal object VoiceWakePhraseMatcher {

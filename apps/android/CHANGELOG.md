@@ -4,7 +4,7 @@
 
 Chat has a simpler composer and attachment menu, adjustable text size, and message details. Completed work is easier to scan, with tool errors still visible. Setup and permissions are clearer. Fixes improve Talk startup, camera responsiveness, transcript refresh, and long replies on Wear OS.
 
-Android Talk now waits longer before sending a transcript and adjusts the silence window to recent voice activity. Configured Voice Wake words can start, stop, pause, resume, mute, and unmute Talk sessions locally.
+Android Talk now waits longer before sending a transcript and adjusts the silence window to recent voice activity. Voice Wake session commands recognize natural wording and synonyms, check up to three recognition guesses, and use best-effort command biasing on Android 13+. A wake word is required while idle or paused; during active Talk, an action plus a target is enough. Commands that would do nothing remain ordinary speech, and voice start/resume require the app in the foreground.
 
 ## 2026.8.2 - 2026-08-31
 
